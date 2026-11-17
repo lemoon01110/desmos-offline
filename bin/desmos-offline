@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# Opens Desmos Offline (one window; running it again brings the open window forward).
+DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+if [ -x "$DIR/node_modules/.bin/electron" ]; then E="$DIR/node_modules/.bin/electron"; else E="$(command -v electron)"; fi
+[ -n "$E" ] || { echo "Electron not found: run 'npm install' in $DIR" >&2; exit 1; }
+exec "$E" "$DIR" --ozone-platform-hint=auto "$@"

@@ -1,0 +1,18 @@
+{
+  "name": "desmos-offline",
+  "productName": "Desmos Offline",
+  "version": "1.1.0",
+  "description": "Unofficial offline desktop shell for the Desmos calculators (Graphing, 3D, Geometry, Scientific, Four Function) with local files, autosave and dark mode.",
+  "main": "main.js",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "setup": "node scripts/fetch-calculator.mjs",
+    "start": "electron .",
+    "install-desktop": "sh scripts/install-linux.sh"
+  },
+  "devDependencies": {
+    "electron": ">=38.0.0"
+  },
+  "engines": { "node": ">=18" }
+}

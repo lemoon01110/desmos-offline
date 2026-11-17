@@ -1,0 +1,3 @@
+node_modules/
+# Desmos's own script: downloaded by `npm run setup`, never committed.
+app/vendor/
