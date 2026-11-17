@@ -5,9 +5,19 @@ const { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, session } = req
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { pathToFileURL } = require('url');
+
+const APP_URL = pathToFileURL(path.join(__dirname, 'app', 'index.html')).href;
+
+// Every IPC call must come from the app page itself, never from another frame or page.
+const rawHandle = ipcMain.handle.bind(ipcMain);
+ipcMain.handle = (ch, fn) => rawHandle(ch, (e, ...args) => {
+  if (!e.senderFrame || e.senderFrame.url !== APP_URL) throw new Error('blocked: unexpected caller');
+  return fn(e, ...args);
+});
 
 app.setName('Desmos Offline');
-app.setPath('userData', path.join(app.getPath('appData'), 'desmos-offline'));
+if (!app.commandLine.hasSwitch('user-data-dir')) app.setPath('userData', path.join(app.getPath('appData'), 'desmos-offline'));
 const PREFS = path.join(app.getPath('userData'), 'prefs.json');
 // Where graphs are kept: DESMOS_GRAPH_DIR, else "graphDir" in prefs.json, else ~/Documents/Desmos Graphs.
 const GRAPH_DIR = process.env.DESMOS_GRAPH_DIR || readPrefs().graphDir || path.join(app.getPath('documents'), 'Desmos Graphs');
@@ -73,11 +83,23 @@ ipcMain.handle('graphs:write', (_e, { id, kind, title, state, thumbnail }) => {
 
 // Delete = move to the system Trash, never a permanent delete.
 ipcMain.handle('graphs:trash', async (_e, id) => { await shell.trashItem(fileFor(id)); return true; });
-ipcMain.handle('graphs:reveal', (_e, id) => { if (id) shell.showItemInFolder(fileFor(id)); else shell.openPath(GRAPH_DIR); });
+ipcMain.handle('graphs:reveal', (_e, id) => {
+  if (id) return shell.showItemInFolder(fileFor(id));
+  fs.mkdirSync(GRAPH_DIR, { recursive: true });
+  if (fs.statSync(GRAPH_DIR).isDirectory()) shell.openPath(GRAPH_DIR);
+});
 ipcMain.handle('graphs:dir', () => GRAPH_DIR);
 
-ipcMain.handle('prefs:get', () => readPrefs());
-ipcMain.handle('prefs:set', (_e, patch) => { const p = { ...readPrefs(), ...patch }; writePrefs(p); return p; });
+ipcMain.handle('prefs:get', () => { const p = readPrefs(); return { theme: p.theme, kind: p.kind, lastGraph: p.lastGraph }; });
+// The page may only change these prefs. graphDir and window bounds are never settable from the page.
+const PAGE_PREFS = { theme: (v) => ['light', 'dark', 'system'].includes(v), kind: (v) => typeof v === 'string' && /^[a-z0-9]{1,20}$/.test(v),
+  lastGraph: (v) => v === null || (typeof v === 'string' && /^[\w\- .()]+$/.test(v) && !v.startsWith('.')) };
+ipcMain.handle('prefs:set', (_e, patch) => {
+  const p = readPrefs();
+  for (const [k, v] of Object.entries(patch || {})) if (PAGE_PREFS[k] && PAGE_PREFS[k](v)) p[k] = v;
+  writePrefs(p);
+  return { theme: p.theme, kind: p.kind, lastGraph: p.lastGraph };
+});
 ipcMain.handle('theme:system', () => nativeTheme.shouldUseDarkColors);
 
 // Export a picture: the renderer hands over a data URL, we ask where to put it.
@@ -142,7 +164,8 @@ function createWindow() {
   win.on('close', () => { const q = readPrefs(); q.bounds = win.getBounds(); writePrefs(q); });
   // Links inside notes open in the normal browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
-  win.webContents.on('will-navigate', (ev, url) => { if (!url.startsWith('file:')) { ev.preventDefault(); if (/^https?:/.test(url)) shell.openExternal(url); } });
+  // The window only ever shows the app page; any other navigation is stopped (web links open in the browser).
+  win.webContents.on('will-navigate', (ev, url) => { if (url !== APP_URL) { ev.preventDefault(); if (/^https?:/.test(url)) shell.openExternal(url); } });
   win.loadFile(path.join(__dirname, 'app', 'index.html'));
   return win;
 }
